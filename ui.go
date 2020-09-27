@@ -3,11 +3,13 @@ package main
 import "github.com/rivo/tview"
 
 type UI struct {
-	app *tview.Application
+	app    *tview.Application
+	spells *[]Spell
 }
 
-func newApp() *UI {
+func newApp(spells *[]Spell) *UI {
 	ui := UI{}
+	ui.spells = spells
 
 	app := tview.NewApplication()
 	ui.app = app

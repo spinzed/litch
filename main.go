@@ -3,9 +3,13 @@ package main
 import "fmt"
 
 func main() {
-	//app := newApp()
+	data, err := readyAllData()
 
-	fmt.Println(readyAllData())
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	app := newApp(data)
 
-	//app.Run()
+	app.Run()
 }

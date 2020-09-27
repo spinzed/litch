@@ -31,7 +31,7 @@ func readyDir(dir string) {
 	}
 }
 
-func loadJSONFromFile(file string, dest interface{}) {
+func loadJSONFromFile(file string, dest interface{}) error {
 	cachedFile, err := os.Open(file)
 	if err != nil {
 		panic(err)
@@ -41,49 +41,73 @@ func loadJSONFromFile(file string, dest interface{}) {
 		panic(err)
 	}
 	err = json.Unmarshal(stuff, dest)
+	if _, iserr := err.(*json.SyntaxError); iserr {
+		return err
+	}
 	if err != nil {
 		panic(err)
 	}
+
+	return nil
 }
 
-func loadData(file string) (*[]Spell, error) {
-	if !checkFile(file) {
-		fmt.Println("spells.json doesnt exist")
-
-		data, err := fetchSpells()
-		if err != nil {
+func loadData(fileStr string) (*[]Spell, error) {
+	// if the file exists, load it
+	if checkFile(fileStr) {
+		var data []Spell
+		if err := loadJSONFromFile(fileStr, &data); err != nil {
 			return nil, err
 		}
 
-		cached, err := json.MarshalIndent(data, "", "    ")
-		if err != nil {
-			panic(err)
-		}
-
-		file, err := os.Create(file)
-		if err != nil {
-			panic(err)
-		}
-		defer file.Close()
-
-		file.Write(cached)
 		return &data, nil
 	}
-	var data []Spell
-	loadJSONFromFile(file, &data)
 
+	fmt.Println("spells.json doesnt exist")
+
+	data, err := fetchSpells()
+	if err != nil {
+		return nil, err
+	}
+
+	cached, err := json.MarshalIndent(data, "", "    ")
+	if err != nil {
+		panic(err)
+	}
+
+	file, err := os.Create(fileStr)
+	if err != nil {
+		panic(err)
+	}
+	defer file.Close()
+
+	file.Write(cached)
 	return &data, nil
 }
 
 func mergeMultipleSources(s1 *[]Spell, s2 *[]Spell) *[]Spell {
+	arr1, arr2 := *s1, *s2
+
+	if arr1 == nil {
+		return &arr2
+	}
+	if arr2 == nil {
+		return &arr1
+	}
+
 	var final []Spell
 	var i1, i2 int
-	arr1 := *s1
-	arr2 := *s2
+	// len is expensive so it is calculated since it doesnt change
+	len1, len2 := len(arr1), len(arr2)
 
-	for {
-		spell1 := arr1[i1]
-		spell2 := arr2[i2]
+	for i1 < len1 && i2 < len2 {
+		spell1 := arr1[len1-1]
+		spell2 := arr2[len2-1]
+		if i1 < len1 {
+			spell1 = arr1[i1]
+		}
+		if i2 < len2 {
+			spell2 = arr2[i2]
+		}
 
 		switch {
 		case spell1.Index == spell2.Index:
@@ -92,11 +116,17 @@ func mergeMultipleSources(s1 *[]Spell, s2 *[]Spell) *[]Spell {
 			i2++
 		// spell1 comes before spell2
 		case spell1.Index < spell2.Index:
+			final = append(final, spell1)
+			i1++
 
 		// spell1 comes after spell2
 		case spell1.Index > spell2.Index:
+			final = append(final, spell2)
+			i2++
 		}
 	}
+
+	return &final
 }
 
 func readyAllData() (*[]Spell, error) {
@@ -116,10 +146,14 @@ func readyAllData() (*[]Spell, error) {
 	if !checkFile(config + "/banshie/local/spells.json") {
 		return dataAPI, nil
 	}
-	var userData *[]Spell
-	loadJSONFromFile(config+"/banshie/local/spells.json", userData)
+	fmt.Println("local spells.json detected")
+	var userData []Spell
+	err = loadJSONFromFile(config+"/banshie/local/spells.json", &userData)
+	if err != nil {
+		return nil, err
+	}
 
-	allSpells := append(*dataAPI, *userData...)
+	allSpells := mergeMultipleSources(&userData, dataAPI)
 
-	return &allSpells, nil
+	return allSpells, nil
 }
