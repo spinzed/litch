@@ -12,6 +12,7 @@ type Spell struct {
 	Index         string
 	Name          string
 	Desc          string
+	HigherLevel   string
 	Range         string
 	Components    []string
 	Material      string
@@ -92,6 +93,7 @@ func spellAPIToStandard(spells *[]SpellTemp) *[]Spell {
 		s.Index = spell.Index
 		s.Name = spell.Name
 		s.Desc = spell.Desc
+		s.HigherLevel = spell.HigherLevel
 		s.Range = spell.Range
 		s.Components = strings.Split(spell.Components, ", ")
 		s.Material = spell.Material
