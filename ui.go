@@ -9,39 +9,46 @@ import (
 )
 
 type UI struct {
-	app       *tview.Application
-	list      *tview.List
-	input     *tview.InputField
-	widebox   *WideBox
-	inputText string
-	spells    *[]Spell
+	app              *tview.Application
+	list             *tview.List
+	input            *tview.InputField
+	statusBox        *tview.TextView
+	widebox          *WideBox
+	wideboxFakeFocus bool
+	inputText        string
+	spells           *[]Spell
+	dataChan         chan []Spell
 }
 
-func newApp(spells *[]Spell) *UI {
+func newApp() *UI {
 	ui := UI{}
-	ui.spells = spells
 
-	app := tview.NewApplication().EnableMouse(true)
+	app := tview.NewApplication().EnableMouse(false)
 	ui.app = app
 
-	list := getList(spells)
-	ui.list = list
-	list.SetInputCapture(ui.handleListInput)
-	input := getInputField(ui.setInputText)
-	ui.input = input
-	widebox := getWideBox()
-	ui.widebox = widebox
+	ui.list = getList()
+	ui.input = getInputField(ui.setInputText)
+	ui.statusBox = tview.NewTextView().SetTextAlign(tview.AlignRight)
+	ui.statusBox.Box.SetBorder(false)
+	ui.widebox = getWideBox()
+	ui.dataChan = make(chan []Spell)
+	go ui.waitForData()
+	go loadAllData(ui.dataChan)
+
+	ui.app.SetInputCapture(ui.handleInput)
 
 	root := tview.NewFlex().
 		SetDirection(tview.FlexRow).
 		AddItem(tview.NewFlex().
-			AddItem(list, 0, 3, true).
-			AddItem(widebox.grid, 0, 7, false), 0, 1, false).
-		AddItem(input, 1, 0, false)
+			AddItem(ui.list, 0, 3, true).
+			AddItem(ui.widebox.grid, 0, 7, false), 0, 1, false).
+		AddItem(tview.NewFlex().SetDirection(tview.FlexColumn).
+			AddItem(ui.input, 0, 3, false).
+			AddItem(ui.statusBox, 0, 7, false), 1, 0, false)
 
 	app.SetRoot(root, true)
 
-	app.SetFocus(input)
+	app.SetFocus(ui.input)
 
 	return &ui
 }
@@ -50,14 +57,60 @@ func (ui *UI) Run() {
 	ui.app.Run()
 }
 
-func (ui *UI) handleListInput(event *tcell.EventKey) *tcell.EventKey {
-	if event.Key() == tcell.KeyEnter {
+func (ui *UI) waitForData() {
+	for v := range ui.dataChan {
+		ui.setSpells(&v)
+	}
+}
+
+func (ui *UI) handleInput(event *tcell.EventKey) *tcell.EventKey {
+	switch event.Key() {
+	case tcell.KeyEnter:
+		//ui.wideboxFakeFocus = true
 		ui.widebox.SetSpell(ui.currentSelectedSpell())
+	case tcell.KeyUp, tcell.KeyCtrlK:
+		if ui.wideboxFakeFocus {
+			ui.widebox.ScrollUp()
+			break
+		}
+		ui.list.SetCurrentItem(ui.list.GetCurrentItem() - 1)
+	case tcell.KeyCtrlJ, tcell.KeyDown:
+		if ui.wideboxFakeFocus {
+			ui.widebox.ScrollDown()
+			break
+		}
+		item := ui.list.GetCurrentItem()
+		if item >= ui.list.GetItemCount()-1 {
+			ui.list.SetCurrentItem(0)
+			break
+		}
+		ui.list.SetCurrentItem(item + 1)
+	case tcell.KeyLeft, tcell.KeyCtrlH:
+		ui.wideboxFakeFocus = false
+	case tcell.KeyRight, tcell.KeyCtrlL:
+		ui.wideboxFakeFocus = true
+	case tcell.KeyEsc:
+		ui.wideboxFakeFocus = !ui.wideboxFakeFocus
+
 	}
 	return event
 }
 
+func (ui *UI) setSpells(spells *[]Spell) {
+	ui.spells = spells
+
+	for i, s := range *spells {
+		ui.list.AddItem(s.Name, strconv.Itoa(i), 0, nil)
+	}
+	// for some reason, the screen isnt auto updated so it has to be so manually
+	// a fix without invoking this function below is prefered
+	ui.app.Draw()
+}
+
 func (ui UI) currentSelectedSpell() *Spell {
+	if ui.list.GetItemCount() < 1 {
+		return nil
+	}
 	_, s := ui.list.GetItemText(ui.list.GetCurrentItem())
 	index, err := strconv.Atoi(s)
 	if err != nil {
@@ -68,8 +121,9 @@ func (ui UI) currentSelectedSpell() *Spell {
 }
 
 func (ui *UI) setInputText(text string) {
-	ui.list.Clear()
+	ui.wideboxFakeFocus = false
 	ui.inputText = text
+	ui.list.Clear()
 	for i, s := range *ui.spells {
 		lname := strings.ToLower(s.Name)
 		linput := strings.ToLower(ui.inputText)
@@ -108,20 +162,16 @@ func formatSpell(name, pattern string) string {
 	return final
 }
 
-func getList(spells *[]Spell) *tview.List {
+func getList() *tview.List {
 	list := tview.NewList().ShowSecondaryText(false)
-
-	for i, s := range *spells {
-		list.AddItem(s.Name, strconv.Itoa(i), 0, nil)
-	}
 	list.SetBorder(true)
+
 	return list
 }
 
 func getInputField(processInput func(string)) *tview.InputField {
 	input := tview.NewInputField().SetLabel(">>> ")
-	input.SetChangedFunc(func(text string) {
-		processInput(text)
-	})
+	input.SetChangedFunc(processInput)
+
 	return input
 }

@@ -7,6 +7,73 @@ import (
 	"os"
 )
 
+func loadAllData(channel chan []Spell) {
+	defer close(channel)
+
+	config, err := os.UserConfigDir()
+	if err != nil {
+		panic(err)
+	}
+
+	readyDir(config + "/banshie/cache")
+	readyDir(config + "/banshie/local")
+
+	dataAPI, err := loadData(config + "/banshie/cache/spells.json")
+	if err != nil {
+		// should be handled via errchannel
+		panic(err)
+	}
+
+	if !checkFile(config + "/banshie/local/spells.json") {
+		channel <- *dataAPI
+		return
+	}
+	fmt.Println("local spells.json detected")
+	var userData []Spell
+	err = loadJSONFromFile(config+"/banshie/local/spells.json", &userData)
+	if err != nil {
+		// should be handled via errchannel
+		panic(err)
+	}
+
+	allSpells := mergeMultipleSources(&userData, dataAPI)
+
+	channel <- *allSpells
+}
+
+func loadData(fileStr string) (*[]Spell, error) {
+	// if the file exists, load it
+	if checkFile(fileStr) {
+		var data []Spell
+		if err := loadJSONFromFile(fileStr, &data); err != nil {
+			return nil, err
+		}
+
+		return &data, nil
+	}
+
+	fmt.Println("spells.json doesnt exist")
+
+	data, err := fetchSpells()
+	if err != nil {
+		return nil, err
+	}
+
+	cached, err := json.MarshalIndent(data, "", "    ")
+	if err != nil {
+		panic(err)
+	}
+
+	file, err := os.Create(fileStr)
+	if err != nil {
+		panic(err)
+	}
+	defer file.Close()
+
+	file.Write(cached)
+	return &data, nil
+}
+
 // check if file/dir exists, true if does, false if doesnt
 func checkFile(dir string) bool {
 	_, err := os.Stat(dir)
@@ -49,39 +116,6 @@ func loadJSONFromFile(file string, dest interface{}) error {
 	}
 
 	return nil
-}
-
-func loadData(fileStr string) (*[]Spell, error) {
-	// if the file exists, load it
-	if checkFile(fileStr) {
-		var data []Spell
-		if err := loadJSONFromFile(fileStr, &data); err != nil {
-			return nil, err
-		}
-
-		return &data, nil
-	}
-
-	fmt.Println("spells.json doesnt exist")
-
-	data, err := fetchSpells()
-	if err != nil {
-		return nil, err
-	}
-
-	cached, err := json.MarshalIndent(data, "", "    ")
-	if err != nil {
-		panic(err)
-	}
-
-	file, err := os.Create(fileStr)
-	if err != nil {
-		panic(err)
-	}
-	defer file.Close()
-
-	file.Write(cached)
-	return &data, nil
 }
 
 func mergeMultipleSources(s1 *[]Spell, s2 *[]Spell) *[]Spell {
@@ -127,33 +161,4 @@ func mergeMultipleSources(s1 *[]Spell, s2 *[]Spell) *[]Spell {
 	}
 
 	return &final
-}
-
-func readyAllData() (*[]Spell, error) {
-	config, err := os.UserConfigDir()
-	if err != nil {
-		panic(err)
-	}
-
-	readyDir(config + "/banshie/cache")
-	readyDir(config + "/banshie/local")
-
-	dataAPI, err := loadData(config + "/banshie/cache/spells.json")
-	if err != nil {
-		return nil, err
-	}
-
-	if !checkFile(config + "/banshie/local/spells.json") {
-		return dataAPI, nil
-	}
-	fmt.Println("local spells.json detected")
-	var userData []Spell
-	err = loadJSONFromFile(config+"/banshie/local/spells.json", &userData)
-	if err != nil {
-		return nil, err
-	}
-
-	allSpells := mergeMultipleSources(&userData, dataAPI)
-
-	return allSpells, nil
 }

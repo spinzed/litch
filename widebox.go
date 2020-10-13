@@ -21,42 +21,64 @@ type WideBox struct {
 	descbox      *tview.TextView
 }
 
+func (b *WideBox) ScrollUp() {
+	r, c := b.descbox.GetScrollOffset()
+	b.descbox.ScrollTo(r-1, c)
+}
+
+func (b *WideBox) ScrollDown() {
+	r, c := b.descbox.GetScrollOffset()
+	b.descbox.ScrollTo(r+1, c)
+}
+
 func (b *WideBox) SetSpell(s *Spell) {
+	if s == nil {
+		s = &Spell{Level: -1}
+	}
 	b.SetName(s.Name)
-	b.SetLevel(s.Level)
+	b.SetLevel(s.Level, s.School.Name)
 	b.SetRitual(s.Ritual)
 	b.SetConentration(s.Concentration)
 	b.SetClasses(s.Classes)
 	b.SetCastingTime(s.CastingTime)
 	b.SetRange(s.Range)
-	b.SetComponents(s.Components)
+	b.SetComponents(s.Components, s.Material)
 	b.SetDuration(s.Duration)
 	b.SetDescription(s.Desc, s.HigherLevel)
+
+	b.descbox.ScrollToBeginning()
 }
 
 func (b *WideBox) SetName(s string) {
-	b.namebox.SetText(s)
+	b.namebox.SetText("[red::bu]" + s)
 }
 
-func (b *WideBox) SetLevel(lvl int) {
-	if lvl == 0 {
-		b.lvlbox.SetText("Cantrip")
+func (b *WideBox) SetLevel(lvl int, school string) {
+	if lvl < 0 {
+		b.lvlbox.SetText("")
+		return
 	}
-	b.lvlbox.SetText("Level " + strconv.Itoa(lvl))
+	if lvl == 0 {
+		b.lvlbox.SetText(school + " Cantrip")
+		return
+	}
+	b.lvlbox.SetText("Level " + strconv.Itoa(lvl) + " " + school)
 }
 
 func (b *WideBox) SetRitual(r bool) {
-	b.ritualbox.SetText("")
 	if r {
-		b.ritualbox.SetText("Ritual")
+		b.ritualbox.SetText("[lime]Ritual")
+		return
 	}
+	b.ritualbox.SetText("")
 }
 
 func (b *WideBox) SetConentration(c bool) {
-	b.concentrbox.SetText("")
 	if c {
-		b.concentrbox.SetText("Concentration")
+		b.concentrbox.SetText("[yellow]Concentration")
+		return
 	}
+	b.concentrbox.SetText("")
 }
 
 func (b *WideBox) SetClasses(c []struct{ Name string }) {
@@ -68,51 +90,77 @@ func (b *WideBox) SetClasses(c []struct{ Name string }) {
 }
 
 func (b *WideBox) SetCastingTime(s string) {
-	b.timecastbox.SetText(s)
+	b.timecastbox.SetText("[orange]Casting Time[white]\n" + s)
 }
 
 func (b *WideBox) SetRange(s string) {
-	b.rangebox.SetText(s)
+	b.rangebox.SetText("[orange]Range[white]\n" + s)
 }
 
-func (b *WideBox) SetComponents(c []string) {
-	b.componentbox.SetText(strings.Join(c, ", "))
+func (b *WideBox) SetComponents(c []string, m string) {
+	text := strings.Join(c, ", ")
+	if m != "" {
+		text += " (" + m + ")"
+		split := strings.SplitN(text, "M", 2)
+		color := "yellow"
+		if strings.Contains(m, "gp") {
+			color = "red"
+		}
+		text = split[0] + "[" + color + "]M[white]" + split[1]
+	}
+	b.componentbox.SetText("[orange]Components[white]\n" + text)
 }
 
 func (b *WideBox) SetDuration(d string) {
-	b.durationbox.SetText(d)
+	b.durationbox.SetText("[orange]Duration[white]\n" + d)
 }
 
 func (b *WideBox) SetDescription(d string, hl string) {
-	b.descbox.SetText(d + "\n\n" + hl)
+	text := d
+	if hl != "" {
+		text += "\n\n[::b]On higher level: [::-]" + hl
+	}
+	b.descbox.SetText(text)
 }
 
 func getWideBox() *WideBox {
+	newTextViewLeft := func() *tview.TextView {
+		return tview.NewTextView().
+			SetDynamicColors(true).
+			SetWrap(true).
+			SetWordWrap(true)
+	}
+	newTextViewMid := func() *tview.TextView {
+		return newTextViewLeft().SetTextAlign(tview.AlignCenter)
+	}
+	newTextViewRight := func() *tview.TextView {
+		return newTextViewLeft().SetTextAlign(tview.AlignRight)
+	}
 	box := WideBox{}
 
-	namebox := tview.NewTextView()
+	namebox := newTextViewLeft()
 	box.namebox = namebox
-	lvlbox := tview.NewTextView()
+	lvlbox := newTextViewLeft()
 	box.lvlbox = lvlbox
-	ritualbox := tview.NewTextView()
+	ritualbox := newTextViewRight()
 	box.ritualbox = ritualbox
-	concentrbox := tview.NewTextView()
+	concentrbox := newTextViewRight()
 	box.concentrbox = concentrbox
-	classbox := tview.NewTextView()
+	classbox := newTextViewLeft()
 	box.classbox = classbox
-	timecastbox := tview.NewTextView()
+	timecastbox := newTextViewMid()
 	box.timecastbox = timecastbox
-	rangebox := tview.NewTextView()
+	rangebox := newTextViewMid()
 	box.rangebox = rangebox
-	componentbox := tview.NewTextView()
+	componentbox := newTextViewMid()
 	box.componentbox = componentbox
-	durationbox := tview.NewTextView()
+	durationbox := newTextViewMid()
 	box.durationbox = durationbox
-	descbox := tview.NewTextView().SetWrap(true).SetWordWrap(true)
+	descbox := newTextViewLeft()
 	box.descbox = descbox
 
 	grid := tview.NewGrid().
-		SetRows(1, 1, 1, 2, 2).
+		SetRows(1, 1, 2, 3, 4).
 		SetColumns(-1, -1).
 		AddItem(namebox, 0, 0, 1, 1, 1, 1, false).
 		AddItem(lvlbox, 1, 0, 1, 1, 1, 1, false).
