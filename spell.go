@@ -48,7 +48,7 @@ type SpellTemp struct {
 	Level         int    `json:"level_int"` // api has level and level_int
 	School        string
 	Class         string `json:"dnd_class"`
-	Archeatype    string
+	Archetype     string
 	Circles       string
 }
 
@@ -108,7 +108,35 @@ func spellAPIToStandard(spells *[]SpellTemp) *[]Spell {
 		s.Level = spell.Level
 		s.School = struct{ Name string }{spell.School}
 		for _, class := range strings.Split(spell.Class, ", ") {
-			s.Classes = append(s.Classes, struct{ Name string }{class})
+			if class != "Ritual Caster" {
+				s.Classes = append(s.Classes, struct{ Name string }{class})
+			}
+		}
+
+		if spell.Archetype != "" {
+			for _, arch := range strings.Split(spell.Archetype, "<br/> ") {
+				parts := strings.Split(arch, ": ")
+				subclass := parts[0] + " (" + parts[1] + ")"
+				s.Subclasses = append(s.Subclasses, struct{ Name string }{subclass})
+			}
+		}
+		if spell.Circles != "" {
+			for _, circle := range strings.Split(spell.Circles, ", ") {
+				subclass := "Druid (" + circle + ")"
+				// There is an inconsistency in the api where the circle is sometimes
+				// contained in the archeatypes, this fixes that
+				var contained bool
+				for _, subcl := range s.Subclasses {
+					if subcl.Name == subclass {
+						contained = true
+						break
+					}
+				}
+				if contained {
+					continue
+				}
+				s.Subclasses = append(s.Subclasses, struct{ Name string }{subclass})
+			}
 		}
 
 		a = append(a, s)

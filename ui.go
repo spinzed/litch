@@ -8,7 +8,9 @@ import (
 	"github.com/rivo/tview"
 )
 
-type UI struct {
+// App holds all references for App components of the App.App as well as all
+// info regarding an App instance
+type App struct {
 	app              *tview.Application
 	list             *tview.List
 	input            *tview.InputField
@@ -18,25 +20,31 @@ type UI struct {
 	inputText        string
 	spells           *[]Spell
 	dataChan         chan []Spell
+	statusChan       chan string
 }
 
-func newApp() *UI {
-	ui := UI{}
+// Instantiate a new app ready to run
+func newApp() *App {
+	ui := App{}
 
 	app := tview.NewApplication().EnableMouse(false)
 	ui.app = app
 
+	// instantiate all parts of the UI
 	ui.list = getList()
 	ui.input = getInputField(ui.setInputText)
-	ui.statusBox = tview.NewTextView().SetTextAlign(tview.AlignRight)
-	ui.statusBox.Box.SetBorder(false)
+	ui.statusBox = getStatusBox()
 	ui.widebox = getWideBox()
 	ui.dataChan = make(chan []Spell)
+	ui.statusChan = make(chan string)
 	go ui.waitForData()
-	go loadAllData(ui.dataChan)
+	go ui.waitForStatuses()
+	go loadAllData(ui.dataChan, ui.statusChan)
 
+	// set the global input handler
 	ui.app.SetInputCapture(ui.handleInput)
 
+	// bind all the UI elements to the app instance
 	root := tview.NewFlex().
 		SetDirection(tview.FlexRow).
 		AddItem(tview.NewFlex().
@@ -49,95 +57,144 @@ func newApp() *UI {
 	app.SetRoot(root, true)
 
 	app.SetFocus(ui.input)
+	ui.focusList()
 
 	return &ui
 }
 
-func (ui *UI) Run() {
-	ui.app.Run()
+// Run the app
+func (app *App) Run() {
+	app.app.Run()
 }
 
-func (ui *UI) waitForData() {
-	for v := range ui.dataChan {
-		ui.setSpells(&v)
+// Waits for the data in the data channel. When the data arrives, it halts
+func (app *App) waitForData() {
+	for v := range app.dataChan {
+		app.setSpells(&v)
 	}
 }
 
-func (ui *UI) handleInput(event *tcell.EventKey) *tcell.EventKey {
+// Waits for the statuses in the status channel. Stays always open
+func (app *App) waitForStatuses() {
+	for v := range app.statusChan {
+		app.setStatus(v)
+	}
+}
+
+// The main app global input handler
+func (app *App) handleInput(event *tcell.EventKey) *tcell.EventKey {
 	switch event.Key() {
 	case tcell.KeyEnter:
 		//ui.wideboxFakeFocus = true
-		ui.widebox.SetSpell(ui.currentSelectedSpell())
+		if spell := app.currentSelectedSpell(); spell != nil {
+			app.widebox.SetSpell(spell)
+		}
 	case tcell.KeyUp, tcell.KeyCtrlK:
-		if ui.wideboxFakeFocus {
-			ui.widebox.ScrollUp()
+		if app.wideboxFakeFocus {
+			app.widebox.ScrollUp()
 			break
 		}
-		ui.list.SetCurrentItem(ui.list.GetCurrentItem() - 1)
+		app.list.SetCurrentItem(app.list.GetCurrentItem() - 1)
 	case tcell.KeyCtrlJ, tcell.KeyDown:
-		if ui.wideboxFakeFocus {
-			ui.widebox.ScrollDown()
+		if app.wideboxFakeFocus {
+			app.widebox.ScrollDown()
 			break
 		}
-		item := ui.list.GetCurrentItem()
-		if item >= ui.list.GetItemCount()-1 {
-			ui.list.SetCurrentItem(0)
+		item := app.list.GetCurrentItem()
+		if item >= app.list.GetItemCount()-1 {
+			app.list.SetCurrentItem(0)
 			break
 		}
-		ui.list.SetCurrentItem(item + 1)
+		app.list.SetCurrentItem(item + 1)
+	case tcell.KeyCtrlD:
+		app.input.SetText("")
 	case tcell.KeyLeft, tcell.KeyCtrlH:
-		ui.wideboxFakeFocus = false
+		app.focusList()
 	case tcell.KeyRight, tcell.KeyCtrlL:
-		ui.wideboxFakeFocus = true
-	case tcell.KeyEsc:
-		ui.wideboxFakeFocus = !ui.wideboxFakeFocus
-
+		app.focusWideBox()
+	case tcell.KeyTab:
+		app.switchFocus()
 	}
 	return event
 }
 
-func (ui *UI) setSpells(spells *[]Spell) {
-	ui.spells = spells
+func (app *App) setStatus(text string) {
+	app.statusBox.SetText(text)
+}
+
+// Switched focus between the list on the left and the main content area to the right
+func (app *App) switchFocus() {
+	if app.wideboxFakeFocus {
+		app.focusList()
+		return
+	}
+	app.focusWideBox()
+}
+
+// Focuses the list
+func (app *App) focusList() {
+	app.wideboxFakeFocus = false
+	app.list.SetBorderAttributes(tcell.AttrBold)
+	app.widebox.grid.SetBorderAttributes(tcell.AttrNone)
+	//ui.app.Draw()
+}
+
+// Focuses the main content area on the right
+func (app *App) focusWideBox() {
+	app.wideboxFakeFocus = true
+	app.list.SetBorderAttributes(tcell.AttrNone)
+	app.widebox.grid.SetBorderAttributes(tcell.AttrBold)
+	//ui.app.Draw()
+}
+
+// Sets the spells shown in the list and updates the list itself
+func (app *App) setSpells(spells *[]Spell) {
+	app.spells = spells
 
 	for i, s := range *spells {
-		ui.list.AddItem(s.Name, strconv.Itoa(i), 0, nil)
+		app.list.AddItem(s.Name, strconv.Itoa(i), 0, nil)
 	}
 	// for some reason, the screen isnt auto updated so it has to be so manually
 	// a fix without invoking this function below is prefered
-	ui.app.Draw()
+	app.app.Draw()
 }
 
-func (ui UI) currentSelectedSpell() *Spell {
-	if ui.list.GetItemCount() < 1 {
+// Returns the current selected spell. Returns nil if there are no spells in the list
+func (app App) currentSelectedSpell() *Spell {
+	if app.list.GetItemCount() < 1 {
 		return nil
 	}
-	_, s := ui.list.GetItemText(ui.list.GetCurrentItem())
+	_, s := app.list.GetItemText(app.list.GetCurrentItem())
 	index, err := strconv.Atoi(s)
 	if err != nil {
 		panic(err)
 	}
-	spells := *ui.spells
+	spells := *app.spells
 	return &spells[index]
 }
 
-func (ui *UI) setInputText(text string) {
-	ui.wideboxFakeFocus = false
-	ui.inputText = text
-	ui.list.Clear()
-	for i, s := range *ui.spells {
+// Handler than should be ran on every text input change. Filters the spell list
+// on text update.
+func (app *App) setInputText(text string) {
+	// focus the list on key input if the main content box happens to be focused atm
+	app.focusList()
+	app.inputText = text
+	app.list.Clear()
+	for i, s := range *app.spells {
 		lname := strings.ToLower(s.Name)
-		linput := strings.ToLower(ui.inputText)
+		linput := strings.ToLower(app.inputText)
 
 		if strings.Contains(lname, linput) {
-			ui.list.AddItem(formatSpell(s.Name, text), strconv.Itoa(i), 0, nil)
+			app.list.AddItem(highlight(s.Name, text), strconv.Itoa(i), 0, nil)
 		}
 	}
 }
 
-// may not work properly with unicode
-func formatSpell(name, pattern string) string {
-	lname := strings.ToLower(name)
-	linput := strings.ToLower(pattern)
+// Highlight a substring in a string regardless of it's capitalisation.
+// May not work properly with unicode
+func highlight(str, substr string) string {
+	lname := strings.ToLower(str)
+	linput := strings.ToLower(substr)
 	parts := strings.Split(lname, linput)
 	pre := "[#ff0000]"
 	post := "[white]"
@@ -145,7 +202,7 @@ func formatSpell(name, pattern string) string {
 	// precalculated lengths for small performance benefits
 	prelen := len(pre)
 	postlen := len(post)
-	patternlen := len(pattern)
+	patternlen := len(substr)
 
 	var final string
 	for i, w := range parts {
@@ -154,24 +211,32 @@ func formatSpell(name, pattern string) string {
 			startx -= (i - 1) * (prelen + postlen)
 		}
 		if i != 0 {
-			final += pre + name[startx:startx+patternlen] + post
+			final += pre + str[startx:startx+patternlen] + post
 			startx += patternlen
 		}
-		final += name[startx : startx+len(w)]
+		final += str[startx : startx+len(w)]
 	}
 	return final
 }
 
+// Returns a pointer to a new list element preconfigured for the app
 func getList() *tview.List {
 	list := tview.NewList().ShowSecondaryText(false)
 	list.SetBorder(true)
-
 	return list
 }
 
+// Returns a pointer to a new input element preconfigured for the app
 func getInputField(processInput func(string)) *tview.InputField {
-	input := tview.NewInputField().SetLabel(">>> ")
+	input := tview.NewInputField().
+		SetLabel(">>> ").
+		SetFieldBackgroundColor(tview.Styles.PrimitiveBackgroundColor)
 	input.SetChangedFunc(processInput)
-
 	return input
+}
+
+func getStatusBox() *tview.TextView {
+	box := tview.NewTextView().SetTextAlign(tview.AlignRight)
+	box.SetBorder(false)
+	return box
 }

@@ -7,8 +7,19 @@ import (
 	"os"
 )
 
-func loadAllData(channel chan []Spell) {
-	defer close(channel)
+// Loads all spell data that it can fetch. Checks if API spells are cached
+// and fetches them if available. If cached content doesn't exist, it fetches
+// them from an API and caches them. Then it checks for user files at the
+// specific location and merges them with API spells.
+// KNOWN ISSUES:
+// - if the spell parsing from local files fails, it will panic
+// - if fetching from API is interrupted, it will panic
+func loadAllData(spellChan chan []Spell, statusChan chan string) {
+	defer func() {
+		close(spellChan)
+		statusChan <- "Done"
+	}()
+	statusChan <- "Loading spells..."
 
 	config, err := os.UserConfigDir()
 	if err != nil {
@@ -18,17 +29,20 @@ func loadAllData(channel chan []Spell) {
 	readyDir(config + "/banshie/cache")
 	readyDir(config + "/banshie/local")
 
-	dataAPI, err := loadData(config + "/banshie/cache/spells.json")
+	// get the spell API data, cached or fetched
+	// TODO: make this run in a goroutine
+	dataAPI, err := loadAPISpells(config+"/banshie/cache/spells.json", statusChan)
 	if err != nil {
 		// should be handled via errchannel
 		panic(err)
 	}
 
+	// if local custom spells file doesnt exist, return only API spells
 	if !checkFile(config + "/banshie/local/spells.json") {
-		channel <- *dataAPI
+		spellChan <- *dataAPI
 		return
 	}
-	fmt.Println("local spells.json detected")
+	statusChan <- "Loading custom spells..."
 	var userData []Spell
 	err = loadJSONFromFile(config+"/banshie/local/spells.json", &userData)
 	if err != nil {
@@ -38,12 +52,15 @@ func loadAllData(channel chan []Spell) {
 
 	allSpells := mergeMultipleSources(&userData, dataAPI)
 
-	channel <- *allSpells
+	spellChan <- *allSpells
 }
 
-func loadData(fileStr string) (*[]Spell, error) {
+// Load API spells, attempt to load cached data and if cache doesn't exist,
+// fetch the spells from the API
+func loadAPISpells(fileStr string, statusChan chan string) (*[]Spell, error) {
 	// if the file exists, load it
 	if checkFile(fileStr) {
+		statusChan <- "Loading cached spells..."
 		var data []Spell
 		if err := loadJSONFromFile(fileStr, &data); err != nil {
 			return nil, err
@@ -52,29 +69,36 @@ func loadData(fileStr string) (*[]Spell, error) {
 		return &data, nil
 	}
 
+	statusChan <- "Fetching spells..."
 	fmt.Println("spells.json doesnt exist")
 
+	// fetch the spells
 	data, err := fetchSpells()
 	if err != nil {
 		return nil, err
 	}
 
+	// marshall the fetched spells in human-readable format
 	cached, err := json.MarshalIndent(data, "", "    ")
 	if err != nil {
 		panic(err)
 	}
 
+	// create the files where spells will be cached. It should not be created
+	// because if it was, then spells would be read from it instead, so there
+	// should be no error
 	file, err := os.Create(fileStr)
 	if err != nil {
 		panic(err)
 	}
 	defer file.Close()
 
+	// cache the spells
 	file.Write(cached)
 	return &data, nil
 }
 
-// check if file/dir exists, true if does, false if doesnt
+// Check if file/dir exists, true if does, false if doesnt
 func checkFile(dir string) bool {
 	_, err := os.Stat(dir)
 	if os.IsNotExist(err) {
@@ -98,6 +122,7 @@ func readyDir(dir string) {
 	}
 }
 
+// Load JSON from file
 func loadJSONFromFile(file string, dest interface{}) error {
 	cachedFile, err := os.Open(file)
 	if err != nil {
@@ -118,6 +143,10 @@ func loadJSONFromFile(file string, dest interface{}) error {
 	return nil
 }
 
+// Merge two spell lists alphabetically. It assumes that both lists are already
+// ordered alphabetically. Spells in s1 have priority against those in s2,
+// meaning that if spells with same indices occur in s1 and s2, the one in s1
+// will end up in the final list.
 func mergeMultipleSources(s1 *[]Spell, s2 *[]Spell) *[]Spell {
 	arr1, arr2 := *s1, *s2
 
