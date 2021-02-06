@@ -52,27 +52,26 @@ type SpellTemp struct {
 	Circles       string
 }
 
-func fetchSpells() ([]Spell, error) {
-	url := "https://api.open5e.com/spells/"
+func fetchSpells(url string, data *[]Spell) error {
 	allSpells := []Spell{}
 
 	for url != "" {
 		resp, err := http.Get(url)
 		if err != nil {
-			return nil, err
+			return err
 		}
 		defer resp.Body.Close()
 
 		body, err := ioutil.ReadAll(resp.Body)
 		if err != nil {
 			fmt.Println("cannot read response:", err)
-			return nil, err
+			return err
 		}
 
 		var jsonResp SpellAPI
 		if err := json.Unmarshal(body, &jsonResp); err != nil {
 			fmt.Println("cannot parse json:", err)
-			return nil, err
+			return err
 		}
 
 		url = jsonResp.Next
@@ -81,7 +80,8 @@ func fetchSpells() ([]Spell, error) {
 		allSpells = append(allSpells, *standard...)
 	}
 
-	return allSpells, nil
+	*data = allSpells
+	return nil
 }
 
 func spellAPIToStandard(spells *[]SpellTemp) *[]Spell {

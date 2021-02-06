@@ -4,8 +4,90 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
+	"log"
 	"os"
+	"path"
 )
+
+type SpellFetcher struct {
+	// identifier of the fetched data, could be per example "custom Spells"
+	name string
+	// path of the data in local storage where it could/should be
+	// can be "" if we dont want to cache spells from an API
+	local string
+	// URL of the API from which the spells will be fetched
+	// can be "" if the spells can be found only locally
+	apiUrl string
+	data   *[]Spell
+}
+
+func NewSpellFetcher(name, local, apiUrl string) *SpellFetcher {
+	data := []Spell{}
+	return &SpellFetcher{name, local, apiUrl, &data}
+}
+
+// Fetch the spells from local storage if it exists, if not, fetch them from
+// an API if it was passed in. If not, the final result will be an empty slice.
+// This function was designed to be run in a separate goroutine. The fetched
+// spells can be accesed in two ways: through a channel, or via a field in the
+// SpellFetcher struct.
+// DISCLAIMER: no mutex was put for the safety of SpellFetcher.data because it
+// is not expected that the field is acessed at once in any point of time
+func (s *SpellFetcher) FetchSpells(spellCh chan []Spell, statusCh chan string) {
+	defer func() {
+		spellCh <- *s.data
+	}()
+
+	// fetch the files locally if they exist
+	if s.local != "" && checkFile(s.local) {
+		if err := loadJSONFromFile(s.local, s.data); err != nil {
+			log.Fatalf("error while parsing json: %v", err)
+		}
+		statusCh <- fmt.Sprintf("Loaded offline cache for %v", s.name)
+		return
+	}
+	if s.apiUrl != "" {
+		statusCh <- fmt.Sprintf("Could not find %v locally, fetching from API...", s.name)
+		if err := fetchSpells(s.apiUrl, s.data); err != nil {
+			log.Fatalf("error while fetching api: %v", err)
+		}
+		statusCh <- fmt.Sprintf("Fetched online spells for %v", s.name)
+		if s.local != "" {
+			statusCh <- fmt.Sprintf("Caching %v...", s.name)
+			go s.Cache()
+		}
+
+		return
+	}
+	//statusCh <- fmt.Sprintf("Could not find any spells for %v", s.name)
+}
+
+func (s *SpellFetcher) Cache() {
+	if s.data == nil {
+		log.Fatalf("no data to cache")
+		//errChan <- errors.New("no data to cache")
+	}
+
+	// marshall the fetched spells in human-readable format
+	cacheReady, err := json.MarshalIndent(s.data, "", "    ")
+	if err != nil {
+		log.Fatalf("error while marshaling spells: %v", err)
+		//errChan <- fmt.Errorf("error while marshaling spells: %v", err)
+	}
+
+	// make sure that the dir of the file is created
+	readyDir(path.Dir(s.local))
+
+	file, err := os.Create(s.local)
+	if err != nil {
+		log.Fatalf("error while creating file: %v", err)
+		//errChan <- err
+	}
+	defer file.Close()
+
+	// cache the spells
+	file.Write(cacheReady)
+}
 
 // Loads all spell data that it can fetch. Checks if API spells are cached
 // and fetches them if available. If cached content doesn't exist, it fetches
@@ -21,81 +103,24 @@ func loadAllData(spellChan chan []Spell, statusChan chan string) {
 	}()
 	statusChan <- "Loading spells..."
 
-	config, err := os.UserConfigDir()
-	if err != nil {
-		panic(err)
-	}
+	// check if these exist, make them it they dont
+	readyDir(CacheDir)
+	readyDir(LocalDir)
 
-	readyDir(config + "/banshie/cache")
-	readyDir(config + "/banshie/local")
+	tempSpellChan := make(chan []Spell, 2)
 
-	// get the spell API data, cached or fetched
-	// TODO: make this run in a goroutine
-	dataAPI, err := loadAPISpells(config+"/banshie/cache/spells.json", statusChan)
-	if err != nil {
-		// should be handled via errchannel
-		panic(err)
-	}
+	custom := NewSpellFetcher("custom spells", LocalDir+"/spells.json", "")
+	api := NewSpellFetcher("API spells", CacheDir+"/spells.json", "https://api.open5e.com/spells/")
 
-	// if local custom spells file doesnt exist, return only API spells
-	if !checkFile(config + "/banshie/local/spells.json") {
-		spellChan <- *dataAPI
-		return
-	}
-	statusChan <- "Loading custom spells..."
-	var userData []Spell
-	err = loadJSONFromFile(config+"/banshie/local/spells.json", &userData)
-	if err != nil {
-		// should be handled via errchannel
-		panic(err)
-	}
+	go custom.FetchSpells(tempSpellChan, statusChan)
+	go api.FetchSpells(tempSpellChan, statusChan)
 
-	allSpells := mergeMultipleSources(&userData, dataAPI)
+	<-tempSpellChan
+	<-tempSpellChan
+
+	allSpells := mergeMultipleSources(custom.data, api.data)
 
 	spellChan <- *allSpells
-}
-
-// Load API spells, attempt to load cached data and if cache doesn't exist,
-// fetch the spells from the API
-func loadAPISpells(fileStr string, statusChan chan string) (*[]Spell, error) {
-	// if the file exists, load it
-	if checkFile(fileStr) {
-		statusChan <- "Loading cached spells..."
-		var data []Spell
-		if err := loadJSONFromFile(fileStr, &data); err != nil {
-			return nil, err
-		}
-
-		return &data, nil
-	}
-
-	statusChan <- "Fetching spells..."
-	fmt.Println("spells.json doesnt exist")
-
-	// fetch the spells
-	data, err := fetchSpells()
-	if err != nil {
-		return nil, err
-	}
-
-	// marshall the fetched spells in human-readable format
-	cached, err := json.MarshalIndent(data, "", "    ")
-	if err != nil {
-		panic(err)
-	}
-
-	// create the files where spells will be cached. It should not be created
-	// because if it was, then spells would be read from it instead, so there
-	// should be no error
-	file, err := os.Create(fileStr)
-	if err != nil {
-		panic(err)
-	}
-	defer file.Close()
-
-	// cache the spells
-	file.Write(cached)
-	return &data, nil
 }
 
 // Check if file/dir exists, true if does, false if doesnt
@@ -150,10 +175,10 @@ func loadJSONFromFile(file string, dest interface{}) error {
 func mergeMultipleSources(s1 *[]Spell, s2 *[]Spell) *[]Spell {
 	arr1, arr2 := *s1, *s2
 
-	if arr1 == nil {
+	if arr1 == nil || len(arr1) == 0 {
 		return &arr2
 	}
-	if arr2 == nil {
+	if arr2 == nil || len(arr2) == 0 {
 		return &arr1
 	}
 

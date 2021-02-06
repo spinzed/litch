@@ -70,7 +70,12 @@ func (app *App) Run() {
 // Waits for the data in the data channel. When the data arrives, it halts
 func (app *App) waitForData() {
 	for v := range app.dataChan {
-		app.setSpells(&v)
+		app.spells = &v
+		app.setSpells()
+		// for some reason, the screen isn't auto updated on the initial spell set
+		// so it has to be so manually.
+		// TODO: find a fix without invoking this function below - low priority
+		app.app.Draw()
 	}
 }
 
@@ -83,6 +88,10 @@ func (app *App) waitForStatuses() {
 
 // The main app global input handler
 func (app *App) handleInput(event *tcell.EventKey) *tcell.EventKey {
+	// if status exists, clear it
+	if app.getStatus() != "" {
+		app.setStatus("")
+	}
 	switch event.Key() {
 	case tcell.KeyEnter:
 		//ui.wideboxFakeFocus = true
@@ -106,6 +115,7 @@ func (app *App) handleInput(event *tcell.EventKey) *tcell.EventKey {
 			break
 		}
 		app.list.SetCurrentItem(item + 1)
+	// tcell.KeyCtrlBackspace doesn't exist for whatever reason
 	case tcell.KeyCtrlD:
 		app.input.SetText("")
 	case tcell.KeyLeft, tcell.KeyCtrlH:
@@ -122,6 +132,11 @@ func (app *App) setStatus(text string) {
 	app.statusBox.SetText(text)
 }
 
+func (app *App) getStatus() string {
+	// the bool signifies whether should the color tags be stripped off or not
+	return app.statusBox.GetText(true)
+}
+
 // Switched focus between the list on the left and the main content area to the right
 func (app *App) switchFocus() {
 	if app.wideboxFakeFocus {
@@ -136,7 +151,6 @@ func (app *App) focusList() {
 	app.wideboxFakeFocus = false
 	app.list.SetBorderAttributes(tcell.AttrBold)
 	app.widebox.grid.SetBorderAttributes(tcell.AttrNone)
-	//ui.app.Draw()
 }
 
 // Focuses the main content area on the right
@@ -144,19 +158,44 @@ func (app *App) focusWideBox() {
 	app.wideboxFakeFocus = true
 	app.list.SetBorderAttributes(tcell.AttrNone)
 	app.widebox.grid.SetBorderAttributes(tcell.AttrBold)
-	//ui.app.Draw()
 }
 
-// Sets the spells shown in the list and updates the list itself
-func (app *App) setSpells(spells *[]Spell) {
-	app.spells = spells
+// Filters and sets the spells from app.spells and updates it on the screen
+// Does NOT update app.spells
+func (app *App) setSpells() {
+	app.list.Clear()
+	for i, s := range *app.spells {
+		lname := strings.ToLower(s.Name)
+		linput := strings.ToLower(app.inputText)
 
-	for i, s := range *spells {
-		app.list.AddItem(s.Name, strconv.Itoa(i), 0, nil)
+		if strings.Contains(lname, linput) {
+			nameString := strconv.Itoa(s.Level) + " " + s.Name
+
+			if s.Ritual || s.Concentration {
+				_, _, w, _ := app.list.Box.GetInnerRect()
+				padLen := w - len(nameString)
+				padNum := 0
+				if s.Concentration {
+					padNum++
+				}
+				if s.Ritual {
+					padNum++
+				}
+
+				if padLen >= 3 {
+					nameString += strings.Repeat(" ", padLen-padNum)
+					if s.Concentration {
+						nameString += "C"
+					}
+					if s.Ritual {
+						nameString += "R"
+					}
+				}
+			}
+
+			app.list.AddItem(highlight(nameString, app.inputText), strconv.Itoa(i), 0, nil)
+		}
 	}
-	// for some reason, the screen isnt auto updated so it has to be so manually
-	// a fix without invoking this function below is prefered
-	app.app.Draw()
 }
 
 // Returns the current selected spell. Returns nil if there are no spells in the list
@@ -179,15 +218,7 @@ func (app *App) setInputText(text string) {
 	// focus the list on key input if the main content box happens to be focused atm
 	app.focusList()
 	app.inputText = text
-	app.list.Clear()
-	for i, s := range *app.spells {
-		lname := strings.ToLower(s.Name)
-		linput := strings.ToLower(app.inputText)
-
-		if strings.Contains(lname, linput) {
-			app.list.AddItem(highlight(s.Name, text), strconv.Itoa(i), 0, nil)
-		}
-	}
+	app.setSpells()
 }
 
 // Highlight a substring in a string regardless of it's capitalisation.

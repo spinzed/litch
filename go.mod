@@ -1,4 +1,4 @@
-module github.com/spinzed/banshie
+module github.com/spinzed/litch
 
 go 1.15
 
