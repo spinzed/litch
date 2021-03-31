@@ -8,6 +8,15 @@ import (
 	"strings"
 )
 
+type Spells []Spell
+
+// These methods make Spells type satisfy the sort.Sort interface
+// It may not be a good idea to sort with raw values, but not pointer
+// values, but we shall see is it a bottleneck when benchmarks are written
+func (s Spells) Len() int           { return len(s) }
+func (s Spells) Less(i, j int) bool { return s[i].Index < s[j].Index }
+func (s Spells) Swap(i, j int)      { s[i], s[j] = s[j], s[i] }
+
 type Spell struct {
 	Index         string
 	Name          string
@@ -52,8 +61,8 @@ type SpellTemp struct {
 	Circles       string
 }
 
-func fetchSpells(url string, data *[]Spell) error {
-	allSpells := []Spell{}
+func fetchSpells(url string, data *Spells) error {
+	allSpells := Spells{}
 
 	for url != "" {
 		resp, err := http.Get(url)
@@ -84,8 +93,8 @@ func fetchSpells(url string, data *[]Spell) error {
 	return nil
 }
 
-func spellAPIToStandard(spells *[]SpellTemp) *[]Spell {
-	a := []Spell{}
+func spellAPIToStandard(spells *[]SpellTemp) *Spells {
+	a := Spells{}
 
 	for _, spell := range *spells {
 		s := Spell{}

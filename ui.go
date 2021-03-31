@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"strconv"
 	"strings"
 
@@ -17,10 +18,12 @@ type App struct {
 	statusBox        *tview.TextView
 	widebox          *WideBox
 	wideboxFakeFocus bool
+	inputMode        InputMode
 	inputText        string
-	spells           *[]Spell
-	dataChan         chan []Spell
+	spells           *Spells
+	dataChan         chan Spells
 	statusChan       chan string
+	fetchLock        bool
 }
 
 // Instantiate a new app ready to run
@@ -35,11 +38,13 @@ func newApp() *App {
 	ui.input = getInputField(ui.setInputText)
 	ui.statusBox = getStatusBox()
 	ui.widebox = getWideBox()
-	ui.dataChan = make(chan []Spell)
+	ui.setInputMode(InputNormal)
+	ui.dataChan = make(chan Spells)
 	ui.statusChan = make(chan string)
 	go ui.waitForData()
 	go ui.waitForStatuses()
-	go loadAllData(ui.dataChan, ui.statusChan)
+
+	ui.FetchData(false)
 
 	// set the global input handler
 	ui.app.SetInputCapture(ui.handleInput)
@@ -67,14 +72,26 @@ func (app *App) Run() {
 	app.app.Run()
 }
 
-// Waits for the data in the data channel. When the data arrives, it halts
+func (app *App) FetchData(isForce bool) {
+	// app.fetchLock keeps track whether data is being fetched already,
+	// it will only be fetched if that isn't happening already
+	if !app.fetchLock {
+		go fetchAllData(app.dataChan, app.statusChan, isForce)
+		// update the lock. It will be released when data is received
+		// through app.dataChan channel in app.waitForData method
+		app.fetchLock = true
+	}
+}
+
+// Waits for the data in the data channel. Stays always open
 func (app *App) waitForData() {
 	for v := range app.dataChan {
 		app.spells = &v
 		app.setSpells()
+		// update the data lock
+		app.fetchLock = false
 		// for some reason, the screen isn't auto updated on the initial spell set
 		// so it has to be so manually.
-		// TODO: find a fix without invoking this function below - low priority
 		app.app.Draw()
 	}
 }
@@ -88,10 +105,11 @@ func (app *App) waitForStatuses() {
 
 // The main app global input handler
 func (app *App) handleInput(event *tcell.EventKey) *tcell.EventKey {
-	// if status exists, clear it
-	if app.getStatus() != "" {
+	// if status exists, clear it, but only if data is not being fetched atm
+	if app.Status() != "" && !app.fetchLock {
 		app.setStatus("")
 	}
+	//fmt.Print(event)
 	switch event.Key() {
 	case tcell.KeyEnter:
 		//ui.wideboxFakeFocus = true
@@ -118,26 +136,61 @@ func (app *App) handleInput(event *tcell.EventKey) *tcell.EventKey {
 	// tcell.KeyCtrlBackspace doesn't exist for whatever reason
 	case tcell.KeyCtrlD:
 		app.input.SetText("")
+	case tcell.KeyF5:
+		go app.FetchData(false)
+	// For some reason, mods on function keys are treated as separate function
+	// keys, shift adding 12 on the key value, which makes 5+12=17. Ctrl adds 24
+	// and alt ads 36
+	case tcell.KeyF17:
+		go app.FetchData(true)
 	case tcell.KeyLeft, tcell.KeyCtrlH:
 		app.focusList()
 	case tcell.KeyRight, tcell.KeyCtrlL:
 		app.focusWideBox()
 	case tcell.KeyTab:
 		app.switchFocus()
+	case tcell.KeyESC:
+		app.setInputMode(InputNormal)
+	case tcell.KeyCtrlN:
+		app.setInputMode(InputCommand)
 	}
 	return event
+}
+
+func (app *App) InputMode() InputMode {
+	return app.inputMode
+}
+
+func (app *App) setInputMode(mode InputMode) {
+	if mode == app.InputMode() {
+		return
+	}
+	oldMode := app.inputMode
+	app.inputMode = mode
+	switch mode {
+	case InputNormal:
+		app.input.SetLabel("> ")
+		return
+	case InputCommand:
+		app.input.SetLabel(": ")
+		return
+	}
+	// by this point, if the mode was valid, the function would return, that
+	// means that it is invalid and must be reverted
+	app.inputMode = oldMode
+	panic(fmt.Errorf("invalid mode: %d", mode))
+}
+
+func (app *App) Status() string {
+	// the bool signifies whether should the color tags be stripped off or not
+	return app.statusBox.GetText(true)
 }
 
 func (app *App) setStatus(text string) {
 	app.statusBox.SetText(text)
 }
 
-func (app *App) getStatus() string {
-	// the bool signifies whether should the color tags be stripped off or not
-	return app.statusBox.GetText(true)
-}
-
-// Switched focus between the list on the left and the main content area to the right
+// Switches focus between the list on the left and the main content area to the right
 func (app *App) switchFocus() {
 	if app.wideboxFakeFocus {
 		app.focusList()
@@ -168,33 +221,34 @@ func (app *App) setSpells() {
 		lname := strings.ToLower(s.Name)
 		linput := strings.ToLower(app.inputText)
 
-		if strings.Contains(lname, linput) {
-			nameString := strconv.Itoa(s.Level) + " " + s.Name
+		if !strings.Contains(lname, linput) {
+			continue
+		}
+		nameString := strconv.Itoa(s.Level) + " " + s.Name
 
-			if s.Ritual || s.Concentration {
-				_, _, w, _ := app.list.Box.GetInnerRect()
-				padLen := w - len(nameString)
-				padNum := 0
-				if s.Concentration {
-					padNum++
-				}
-				if s.Ritual {
-					padNum++
-				}
-
-				if padLen >= 3 {
-					nameString += strings.Repeat(" ", padLen-padNum)
-					if s.Concentration {
-						nameString += "C"
-					}
-					if s.Ritual {
-						nameString += "R"
-					}
-				}
+		if s.Ritual || s.Concentration {
+			_, _, w, _ := app.list.Box.GetInnerRect()
+			padLen := w - len(nameString)
+			padNum := 0
+			if s.Concentration {
+				padNum++
+			}
+			if s.Ritual {
+				padNum++
 			}
 
-			app.list.AddItem(highlight(nameString, app.inputText), strconv.Itoa(i), 0, nil)
+			if padLen >= 3 {
+				nameString += strings.Repeat(" ", padLen-padNum)
+				if s.Concentration {
+					nameString += "C"
+				}
+				if s.Ritual {
+					nameString += "R"
+				}
+			}
 		}
+
+		app.list.AddItem(highlight(nameString, app.inputText), strconv.Itoa(i), 0, nil)
 	}
 }
 
@@ -216,6 +270,7 @@ func (app App) currentSelectedSpell() *Spell {
 // on text update.
 func (app *App) setInputText(text string) {
 	// focus the list on key input if the main content box happens to be focused atm
+	// TODO: change behavior on different modes (normal, command...)
 	app.focusList()
 	app.inputText = text
 	app.setSpells()
@@ -230,7 +285,7 @@ func highlight(str, substr string) string {
 	pre := "[#ff0000]"
 	post := "[white]"
 
-	// precalculated lengths for small performance benefits
+	// precalculated lengths for a small performance gain
 	prelen := len(pre)
 	postlen := len(post)
 	patternlen := len(substr)
@@ -260,7 +315,7 @@ func getList() *tview.List {
 // Returns a pointer to a new input element preconfigured for the app
 func getInputField(processInput func(string)) *tview.InputField {
 	input := tview.NewInputField().
-		SetLabel(">>> ").
+		SetLabel("> ").
 		SetFieldBackgroundColor(tview.Styles.PrimitiveBackgroundColor)
 	input.SetChangedFunc(processInput)
 	return input

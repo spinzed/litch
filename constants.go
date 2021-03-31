@@ -5,6 +5,13 @@ import (
 	"os"
 )
 
+type InputMode int
+
+const (
+	InputNormal InputMode = iota
+	InputCommand
+)
+
 var CacheDir string = fmt.Sprintf("%s/cache", ProjectDir)
 var LocalDir string = fmt.Sprintf("%s/local", ProjectDir)
 
