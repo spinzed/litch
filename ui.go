@@ -5,7 +5,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/gdamore/tcell"
+	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
 )
 
@@ -32,6 +32,10 @@ func newApp() *App {
 
 	app := tview.NewApplication().EnableMouse(false)
 	ui.app = app
+	// sets the default color for tview primitives. A bit weird way to do
+	// that but eh. Does not set the background color of some pritives like
+	// input fields
+	tview.Styles.PrimitiveBackgroundColor = DefaultBgColor
 
 	// instantiate all parts of the UI
 	ui.list = getList()
@@ -137,12 +141,11 @@ func (app *App) handleInput(event *tcell.EventKey) *tcell.EventKey {
 	case tcell.KeyCtrlD:
 		app.input.SetText("")
 	case tcell.KeyF5:
-		go app.FetchData(false)
-	// For some reason, mods on function keys are treated as separate function
-	// keys, shift adding 12 on the key value, which makes 5+12=17. Ctrl adds 24
-	// and alt ads 36
-	case tcell.KeyF17:
-		go app.FetchData(true)
+		var isForce bool
+		if event.Modifiers() == tcell.ModShift {
+			isForce = true
+		}
+		go app.FetchData(isForce)
 	case tcell.KeyLeft, tcell.KeyCtrlH:
 		app.focusList()
 	case tcell.KeyRight, tcell.KeyCtrlL:
@@ -315,9 +318,8 @@ func getList() *tview.List {
 // Returns a pointer to a new input element preconfigured for the app
 func getInputField(processInput func(string)) *tview.InputField {
 	input := tview.NewInputField().
-		SetLabel("> ").
-		SetFieldBackgroundColor(tview.Styles.PrimitiveBackgroundColor)
-	input.SetChangedFunc(processInput)
+		SetLabel("> ")
+	input.SetChangedFunc(processInput).SetFieldBackgroundColor(DefaultBgColor)
 	return input
 }
 

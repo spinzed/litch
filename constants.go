@@ -3,6 +3,8 @@ package main
 import (
 	"fmt"
 	"os"
+
+	"github.com/gdamore/tcell/v2"
 )
 
 type InputMode int
@@ -10,6 +12,7 @@ type InputMode int
 const (
 	InputNormal InputMode = iota
 	InputCommand
+	DefaultBgColor = tcell.ColorDefault
 )
 
 var CacheDir string = fmt.Sprintf("%s/cache", ProjectDir)
