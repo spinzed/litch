@@ -12,11 +12,15 @@ type InputMode int
 const (
 	InputNormal InputMode = iota
 	InputCommand
-	DefaultBgColor = tcell.ColorDefault
+	DefaultBgColor           = tcell.ColorDefault
+	EventInfo      EventType = "INFO"
+	EventWarn      EventType = "WARN"
+	EventErr       EventType = "ERR"
 )
 
 var CacheDir string = fmt.Sprintf("%s/cache", ProjectDir)
 var LocalDir string = fmt.Sprintf("%s/local", ProjectDir)
+var LogFile string = fmt.Sprintf("%s/log.txt", ProjectDir)
 
 var ProjectDir string = func() string {
 	config, err := os.UserConfigDir()

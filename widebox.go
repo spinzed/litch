@@ -111,7 +111,7 @@ func (b *WideBox) SetSpell(s *Spell) {
 }
 
 func (b *WideBox) SetName(s string) {
-	b.namebox.SetText("[red::bu]" + s)
+	b.namebox.SetText("[#ff5522::bu]" + s)
 }
 
 func (b *WideBox) SetLevel(lvl int, school string) {
@@ -128,7 +128,7 @@ func (b *WideBox) SetLevel(lvl int, school string) {
 
 func (b *WideBox) SetRitual(r bool) {
 	if r {
-		b.ritualbox.SetText("[lime]Ritual")
+		b.ritualbox.SetText("[#00ff00]Ritual")
 		return
 	}
 	b.ritualbox.SetText("")

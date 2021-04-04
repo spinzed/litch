@@ -36,10 +36,10 @@ type Spell struct {
 }
 
 type SpellAPI struct {
-	Count    int
-	Next     string
-	previous string
-	Results  []SpellTemp
+	Count int
+	Next  string
+	//previous string
+	Results []SpellTemp
 }
 
 type SpellTemp struct {

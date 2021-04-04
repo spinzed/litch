@@ -24,67 +24,87 @@ type App struct {
 	dataChan         chan Spells
 	statusChan       chan string
 	fetchLock        bool
+	eventReg         *EventRegister
 }
 
 // Instantiate a new app ready to run
 func newApp() *App {
-	ui := App{}
+	app := App{}
 
-	app := tview.NewApplication().EnableMouse(false)
-	ui.app = app
+	defer func() {
+		// perform an app cleanup and after that keep on packing
+		if r := recover(); r != nil {
+			app.Quit()
+			panic(r)
+		}
+	}()
+
+	ui := tview.NewApplication().EnableMouse(false)
+	app.app = ui
 	// sets the default color for tview primitives. A bit weird way to do
 	// that but eh. Does not set the background color of some pritives like
 	// input fields
 	tview.Styles.PrimitiveBackgroundColor = DefaultBgColor
 
 	// instantiate all parts of the UI
-	ui.list = getList()
-	ui.input = getInputField(ui.setInputText)
-	ui.statusBox = getStatusBox()
-	ui.widebox = getWideBox()
-	ui.setInputMode(InputNormal)
-	ui.dataChan = make(chan Spells)
-	ui.statusChan = make(chan string)
-	go ui.waitForData()
-	go ui.waitForStatuses()
+	app.list = getList()
+	app.input = getInputField(app.setInputText)
+	app.statusBox = getStatusBox()
+	app.widebox = getWideBox()
+	app.setInputMode(InputNormal)
+	app.dataChan = make(chan Spells)
+	app.statusChan = make(chan string)
 
-	ui.FetchData(false)
+	// set up channel loops in separate goroutines which wait for data and statuses.
+	// It is important that they are set up before the the first data fetch.
+	go app.waitForData()
+	go app.waitForStatuses()
+
+	// instantiate a logger
+	l := NewLogger(LogFile)
+	app.eventReg = NewEventRegister(l, app.statusChan)
+
+	// make sure that spells are initialized if fetching goes wrong
+	app.spells = new(Spells)
+	app.FetchData(false)
 
 	// set the global input handler
-	ui.app.SetInputCapture(ui.handleInput)
+	app.app.SetInputCapture(app.handleInput)
 
 	// bind all the UI elements to the app instance
 	root := tview.NewFlex().
 		SetDirection(tview.FlexRow).
 		AddItem(tview.NewFlex().
-			AddItem(ui.list, 0, 3, true).
-			AddItem(ui.widebox.grid, 0, 7, false), 0, 1, false).
+			AddItem(app.list, 0, 3, true).
+			AddItem(app.widebox.grid, 0, 7, false), 0, 1, false).
 		AddItem(tview.NewFlex().SetDirection(tview.FlexColumn).
-			AddItem(ui.input, 0, 3, false).
-			AddItem(ui.statusBox, 0, 7, false), 1, 0, false)
+			AddItem(app.input, 0, 3, false).
+			AddItem(app.statusBox, 0, 7, false), 1, 0, false)
 
-	app.SetRoot(root, true)
+	ui.SetRoot(root, true)
 
-	app.SetFocus(ui.input)
-	ui.focusList()
+	ui.SetFocus(app.input)
+	app.focusList()
 
-	return &ui
+	return &app
 }
 
-// Run the app
+// Run the app.
 func (app *App) Run() {
+	defer func() {
+		// perform an app cleanup and after that keep on packing
+		if r := recover(); r != nil {
+			app.Quit()
+			panic(r)
+		}
+	}()
+
 	app.app.Run()
 }
 
-func (app *App) FetchData(isForce bool) {
-	// app.fetchLock keeps track whether data is being fetched already,
-	// it will only be fetched if that isn't happening already
-	if !app.fetchLock {
-		go fetchAllData(app.dataChan, app.statusChan, isForce)
-		// update the lock. It will be released when data is received
-		// through app.dataChan channel in app.waitForData method
-		app.fetchLock = true
-	}
+// Quit the app aka do the cleanup
+func (app *App) Quit() {
+	app.eventReg.logger.Close()
 }
 
 // Waits for the data in the data channel. Stays always open
@@ -156,6 +176,9 @@ func (app *App) handleInput(event *tcell.EventKey) *tcell.EventKey {
 		app.setInputMode(InputNormal)
 	case tcell.KeyCtrlN:
 		app.setInputMode(InputCommand)
+	// this will run before its default behavior (closing the application)
+	case tcell.KeyCtrlC:
+		app.Quit()
 	}
 	return event
 }
@@ -310,7 +333,10 @@ func highlight(str, substr string) string {
 
 // Returns a pointer to a new list element preconfigured for the app
 func getList() *tview.List {
-	list := tview.NewList().ShowSecondaryText(false)
+	list := tview.NewList().
+		ShowSecondaryText(false).
+		SetSelectedTextColor(tcell.ColorBlack).
+		SetHighlightFullLine(true)
 	list.SetBorder(true)
 	return list
 }
