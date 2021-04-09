@@ -3,7 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"strings"
 )
@@ -61,17 +61,14 @@ type SpellTemp struct {
 	Circles       string
 }
 
+// Modified during testing
+var fetchFunc func(string) ([]byte, error) = __fetchSpellsAPI
+
 func fetchSpells(url string, data *Spells) error {
 	allSpells := Spells{}
 
 	for url != "" {
-		resp, err := http.Get(url)
-		if err != nil {
-			return err
-		}
-		defer resp.Body.Close()
-
-		body, err := ioutil.ReadAll(resp.Body)
+		body, err := fetchFunc(url)
 		if err != nil {
 			fmt.Println("cannot read response:", err)
 			return err
@@ -79,8 +76,10 @@ func fetchSpells(url string, data *Spells) error {
 
 		var jsonResp SpellAPI
 		if err := json.Unmarshal(body, &jsonResp); err != nil {
-			fmt.Println("cannot parse json:", err)
-			return err
+			if e, ok := err.(*json.SyntaxError); ok {
+				return fmt.Errorf("Cannot parse json: %s, at byte offset %d", err, e.Offset)
+			}
+			return fmt.Errorf("Cannot parse json: %s", err)
 		}
 
 		url = jsonResp.Next
@@ -91,6 +90,15 @@ func fetchSpells(url string, data *Spells) error {
 
 	*data = allSpells
 	return nil
+}
+
+func __fetchSpellsAPI(url string) ([]byte, error) {
+	r, err := http.Get(url)
+	if err != nil {
+		return nil, err
+	}
+	defer r.Body.Close()
+	return io.ReadAll(r.Body)
 }
 
 func spellAPIToStandard(spells *[]SpellTemp) *Spells {
@@ -104,7 +112,12 @@ func spellAPIToStandard(spells *[]SpellTemp) *Spells {
 		s.Desc = spell.Desc
 		s.HigherLevel = spell.HigherLevel
 		s.Range = spell.Range
-		s.Components = strings.Split(spell.Components, ", ")
+		if spell.Components != "" {
+			s.Components = strings.Split(spell.Components, ",")
+			for i, c := range s.Components {
+				s.Components[i] = strings.TrimSpace(c)
+			}
+		}
 		s.Material = spell.Material
 		if spell.Ritual == "yes" {
 			s.Ritual = true
@@ -116,21 +129,24 @@ func spellAPIToStandard(spells *[]SpellTemp) *Spells {
 		s.CastingTime = spell.CastingTime
 		s.Level = spell.Level
 		s.School = struct{ Name string }{spell.School}
-		for _, class := range strings.Split(spell.Class, ", ") {
+		for _, class := range strings.Split(spell.Class, ",") {
+			class = strings.TrimSpace(class)
 			if class != "Ritual Caster" {
 				s.Classes = append(s.Classes, struct{ Name string }{class})
 			}
 		}
 
 		if spell.Archetype != "" {
-			for _, arch := range strings.Split(spell.Archetype, "<br/> ") {
+			for _, arch := range strings.Split(spell.Archetype, ",") {
+				arch = strings.TrimSpace(arch)
 				parts := strings.Split(arch, ": ")
 				subclass := parts[0] + " (" + parts[1] + ")"
 				s.Subclasses = append(s.Subclasses, struct{ Name string }{subclass})
 			}
 		}
 		if spell.Circles != "" {
-			for _, circle := range strings.Split(spell.Circles, ", ") {
+			for _, circle := range strings.Split(spell.Circles, ",") {
+				circle = strings.TrimSpace(circle)
 				subclass := "Druid (" + circle + ")"
 				// There is an inconsistency in the api where the circle is sometimes
 				// contained in the archeatypes, this fixes that

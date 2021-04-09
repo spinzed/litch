@@ -24,12 +24,11 @@ func NewLogger(filepath string) *Logger {
 	logger.file.Truncate(0)
 
 	logger.writer = bufio.NewWriter(logger.file)
-
 	return &logger
 }
 
 func (l *Logger) Clear(text string) {
-	l.writer.WriteString(text)
+	l.writer.Flush()
 }
 
 func (l *Logger) formatStr(evt EventType, text string) string {

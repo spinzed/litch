@@ -49,10 +49,10 @@ func (app *App) fetchAllData(isForce bool) {
 func mergeMultipleSources(s1 *Spells, s2 *Spells) *Spells {
 	arr1, arr2 := *s1, *s2
 
-	if arr1 == nil || arr1.Len() == 0 {
+	if len(arr1) == 0 {
 		return &arr2
 	}
-	if arr2 == nil || arr2.Len() == 0 {
+	if len(arr2) == 0 {
 		return &arr1
 	}
 
@@ -61,9 +61,8 @@ func mergeMultipleSources(s1 *Spells, s2 *Spells) *Spells {
 	// lengths are precalculated for a small performance gain
 	len1, len2 := len(arr1), len(arr2)
 
-	for i1 < len1 && i2 < len2 {
-		spell1 := arr1[len1-1]
-		spell2 := arr2[len2-1]
+	for i1 < len1 || i2 < len2 {
+		var spell1, spell2 Spell
 		if i1 < len1 {
 			spell1 = arr1[i1]
 		}
@@ -71,18 +70,19 @@ func mergeMultipleSources(s1 *Spells, s2 *Spells) *Spells {
 			spell2 = arr2[i2]
 		}
 
+		// the conditions are ugly but hey, they work
 		switch {
 		case spell1.Index == spell2.Index:
 			final = append(final, spell1)
 			i1++
 			i2++
 		// spell1 comes before spell2
-		case spell1.Index < spell2.Index:
+		case spell1.Index != "" && (spell1.Index < spell2.Index || spell2.Index == ""):
 			final = append(final, spell1)
 			i1++
 
 		// spell1 comes after spell2
-		case spell1.Index > spell2.Index:
+		case spell2.Index != "" && (spell1.Index > spell2.Index || spell1.Index == ""):
 			final = append(final, spell2)
 			i2++
 		}

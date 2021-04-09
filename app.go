@@ -187,24 +187,27 @@ func (app *App) InputMode() InputMode {
 	return app.inputMode
 }
 
-func (app *App) setInputMode(mode InputMode) {
+func (app *App) setInputMode(mode InputMode) error {
 	if mode == app.InputMode() {
-		return
+		return nil
 	}
 	oldMode := app.inputMode
 	app.inputMode = mode
 	switch mode {
 	case InputNormal:
 		app.input.SetLabel("> ")
-		return
+		return nil
 	case InputCommand:
 		app.input.SetLabel(": ")
-		return
+		return nil
 	}
 	// by this point, if the mode was valid, the function would return, that
 	// means that it is invalid and must be reverted
 	app.inputMode = oldMode
-	panic(fmt.Errorf("invalid mode: %d", mode))
+	user := "Error while trying to switch modes, check logs"
+	err := fmt.Errorf("Selected invalid mode: %d", mode)
+	app.eventReg.Register(EventInfo, user, err.Error())
+	return err
 }
 
 func (app *App) Status() string {
@@ -239,9 +242,10 @@ func (app *App) focusWideBox() {
 	app.widebox.grid.SetBorderAttributes(tcell.AttrBold)
 }
 
-// Filters and sets the spells from app.spells and updates it on the screen
-// Does NOT update app.spells
-func (app *App) setSpells() {
+// Filters and sets the spells from app.spells and updates it on the screen.
+// Does NOT update app.spells. The main task of the return value is for testing.
+func (app *App) setSpells() *[]string {
+	var items []string
 	app.list.Clear()
 	for i, s := range *app.spells {
 		lname := strings.ToLower(s.Name)
@@ -274,8 +278,11 @@ func (app *App) setSpells() {
 			}
 		}
 
-		app.list.AddItem(highlight(nameString, app.inputText), strconv.Itoa(i), 0, nil)
+		hlght := highlight(nameString, app.inputText)
+		items = append(items, hlght)
+		app.list.AddItem(hlght, strconv.Itoa(i), 0, nil)
 	}
+	return &items
 }
 
 // Returns the current selected spell. Returns nil if there are no spells in the list
@@ -305,15 +312,16 @@ func (app *App) setInputText(text string) {
 // Highlight a substring in a string regardless of it's capitalisation.
 // May not work properly with unicode
 func highlight(str, substr string) string {
+	if substr == "" {
+		return str
+	}
 	lname := strings.ToLower(str)
 	linput := strings.ToLower(substr)
 	parts := strings.Split(lname, linput)
-	pre := "[#ff0000]"
-	post := "[white]"
 
-	// precalculated lengths for a small performance gain
-	prelen := len(pre)
-	postlen := len(post)
+	// precalculated lengths of color prefixes for a small performance gain
+	prelen := len(HlghtSubstr)
+	postlen := len(HlghtNormal)
 	patternlen := len(substr)
 
 	var final string
@@ -323,7 +331,7 @@ func highlight(str, substr string) string {
 			startx -= (i - 1) * (prelen + postlen)
 		}
 		if i != 0 {
-			final += pre + str[startx:startx+patternlen] + post
+			final += HlghtSubstr + str[startx:startx+patternlen] + HlghtNormal
 			startx += patternlen
 		}
 		final += str[startx : startx+len(w)]

@@ -16,6 +16,8 @@ const (
 	EventInfo      EventType = "INFO"
 	EventWarn      EventType = "WARN"
 	EventErr       EventType = "ERR"
+	HlghtNormal    string    = "[white]"
+	HlghtSubstr    string    = "[#ff0000]"
 )
 
 var CacheDir string = fmt.Sprintf("%s/cache", ProjectDir)
