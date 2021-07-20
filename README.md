@@ -17,7 +17,8 @@ Format of the spells in the spells.json file (no fields are required except the 
 ## How do I run this?
 1) Install [Golang](https://golang.org/)
 2) `git clone https://github.com/spinzed/litch.git`
-3) `go run .`
+3) `make` on Linux or `go run .` on any system.
+    - to uninstall on Linux: `make uninstall`
 
 ## Aditional Notes
 If you have any suggestions, please let me know. Although I planned to use this myself, I doubt that I'll be able to do so in foreseeable future.
