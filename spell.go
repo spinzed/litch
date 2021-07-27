@@ -140,8 +140,12 @@ func spellAPIToStandard(spells *[]SpellTemp) *Spells {
 			for _, arch := range strings.Split(spell.Archetype, ",") {
 				arch = strings.TrimSpace(arch)
 				parts := strings.Split(arch, ": ")
-				subclass := parts[0] + " (" + parts[1] + ")"
-				s.Subclasses = append(s.Subclasses, struct{ Name string }{subclass})
+                // if there are at least 2 parts, continue, if there are not,
+                // there is a problem in parsing without a doubt
+                if len(parts) >= 2 {
+                    subclass := parts[0] + " (" + parts[1] + ")"
+                    s.Subclasses = append(s.Subclasses, struct{ Name string }{subclass})
+                }
 			}
 		}
 		if spell.Circles != "" {
