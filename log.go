@@ -20,7 +20,7 @@ func NewLogger(filepath string) *Logger {
 
 	// errors are truncated which means that if something goes wrong (ie no
 	// permissions to create the file), it will silently fail
-	logger.file, _ = os.OpenFile(LogFile, os.O_RDWR|os.O_CREATE, 0755)
+	logger.file, _ = os.OpenFile(filepath, os.O_RDWR|os.O_CREATE, 0755)
 	logger.file.Truncate(0)
 
 	logger.writer = bufio.NewWriter(logger.file)
