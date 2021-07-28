@@ -1,10 +1,17 @@
 package main
 
+import "fmt"
+
 func (app *App) FetchData(isForce bool) {
-	// app.fetchLock keeps track whether data is being fetched already,
+    defer func () {
+        if r := recover(); r != nil {
+            app.eventReg.Register(EventErr, fmt.Sprintf("Could not load spells: %v", r), "Unforseen error while fetching spells, check logs")
+        }
+    }()
+	// app.fetchLock keeps track whether data is being fetched at the moment.
 	// it will only be fetched if that isn't happening already. The actual
-	// fetching is in the separate method so that no outines are created
-	// unnecesarily. Although that is of a little importance tbh.
+	// fetching is in the separate method so that no routines are created
+	// unnecesarily, although that is of a little importance tbh.
 	if !app.fetchLock {
 		go app.fetchAllData(isForce)
 		// update the lock. It will be released when data is received

@@ -89,10 +89,10 @@ func newApp() *App {
 	return &app
 }
 
-// Run the app.
+// Run the app
 func (app *App) Run() {
 	defer func() {
-		// perform an app cleanup and after that keep on packing
+		// perform an app cleanup and after that keep on panicking
 		if r := recover(); r != nil {
 			app.Quit()
 			panic(r)
@@ -111,7 +111,7 @@ func (app *App) Quit() {
 func (app *App) waitForData() {
 	for v := range app.dataChan {
 		app.spells = &v
-		app.setSpells()
+		app.updateSpellList()
 		// update the data lock
 		app.fetchLock = false
 		// for some reason, the screen isn't auto updated on the initial spell set
@@ -244,7 +244,7 @@ func (app *App) focusWideBox() {
 
 // Filters and sets the spells from app.spells and updates it on the screen.
 // Does NOT update app.spells. The main task of the return value is for testing.
-func (app *App) setSpells() *[]string {
+func (app *App) updateSpellList() *[]string {
 	var items []string
 	app.list.Clear()
 	for i, s := range *app.spells {
@@ -282,6 +282,8 @@ func (app *App) setSpells() *[]string {
 		items = append(items, hlght)
 		app.list.AddItem(hlght, strconv.Itoa(i), 0, nil)
 	}
+    // title shows how many spells are shown out of total
+    app.list.SetTitle(fmt.Sprintf("%d/%d", len(items), len(*app.spells)))
 	return &items
 }
 
@@ -306,7 +308,7 @@ func (app *App) setInputText(text string) {
 	// TODO: change behavior on different modes (normal, command...)
 	app.focusList()
 	app.inputText = text
-	app.setSpells()
+	app.updateSpellList()
 }
 
 // Highlight a substring in a string regardless of it's capitalisation.

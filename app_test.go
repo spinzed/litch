@@ -70,7 +70,7 @@ func TestSetSpells(t *testing.T) {
 	for _, test := range tests {
 		AppTest.spells = test.spells
 		AppTest.setInputText(test.substr)
-		output := AppTest.setSpells()
+		output := AppTest.updateSpellList()
 		//t.Log(output)
 		if !reflect.DeepEqual(output, &test.want) {
 			t.Errorf("Unexpected result.\nhave: \"%#v\"\nwant: \"%#v\"", *output, test.want)
